@@ -1,0 +1,32 @@
+#
+# making a IEEE1888 database by sqlite.
+
+## connect a database
+
+sqlite3 fiap.db
+
+## create table
+
+create table mdata (
+	key text,
+	time integer,
+	value none,
+	unique (key, time) on conflict abort
+);
+
+#    key (text): Point ID
+#time (integer): GMT, UTC
+#  value (none): Metadata
+
+select cast(value as real) from mdata where key = 'http://tanu.org/WXT510/SHome/Temperature' and time > 1370458369 and time < 1370657215;
+
+select * from mdata where time > 1370458369 and key like "%Temperature"';
+
+
+triggerを仕掛けて、挿入されたら trapman に挿入された値を突っ込む。
+
+#create table trapman (
+#callback,	# URL
+#value,
+#);
+
