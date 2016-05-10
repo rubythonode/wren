@@ -45,20 +45,19 @@ class WrenHTTPHandler(TinyHTTPHandler):
             keymap[k] = str(keymap[k])
         return True
 
-    def do_gw_write(self, keymap, data):
+    def do_gw_write(self, key, data):
+        if self._is_debug(3):
+            print('DEBUG: starting gateway writer for', key)
+        keymap = self.server.config['keymap'][key]
         if self._is_debug(3):
             print('DEBUG: keymap=', keymap)
-            print('DEBUG: data=', data)
         if not self.check_keymap(keymap):
             self.send_error_msg(400, 'ERROR: internal error, no enough config')
             return
         # protocol handler
         if keymap['protocol'] == 'MODBUS-TCP':
-            if not data.has_key('value'):
-                self.send_error_msg(400,
-                    'ERROR: invalid data format of the request')
             # XXX should check the content of data.
-            result = wren_gw_modbus_write(keymap, data['value'])
+            result = wren_gw_modbus_write(keymap, data)
         else:
             self.send_error_msg(400,
                     'ERROR: internal error, unsupported protocol')
@@ -67,8 +66,18 @@ class WrenHTTPHandler(TinyHTTPHandler):
             self.send_error_msg(400,
                 'ERROR: internal error, gateway failed.')
             return
+        msg = 'success'
+        self.send_once(msg, len(msg), ctype='text/plain')
+        return
 
-    def do_gw_read(self, keymap):
+    def do_gw_read(self, key):
+        ''' gateway function to read data.
+
+        it is assuming that the key exists.
+        '''
+        if self._is_debug(3):
+            print('DEBUG: starting gateway reader for', key)
+        keymap = self.server.config['keymap'][key]
         if self._is_debug(3):
             print('DEBUG: keymap=', keymap)
         if not self.check_keymap(keymap):
@@ -86,15 +95,19 @@ class WrenHTTPHandler(TinyHTTPHandler):
             self.send_error_msg(400,
                 'ERROR: internal error, gateway failed.')
             return
+        if keymap.has_key('adjust'):
+            try:
+                result = eval(str(float(result)) + keymap['adjust'])
+            except Exception as e:
+                self.send_error_msg(400,
+                    'ERROR: internal error, conversion failed.')
+                return
         # get current ISO datetime.
-        msg = ('{"time": "%s", "value": "%s"}' %
-                (datetime.now(dateutil.tz.gettz(TZ)).isoformat(), result))
-        self.send_response(200)
-        self.send_header('Content-length', str(len(msg)))
-        self.add_common_headers();
-        self.end_headers()
-        self.wfile.write(msg)
-        self.wfile.write('\n')
+        msg = '{"kiwi":{"version":"20140401","point":{'
+        msg += ('"%s":[{"time":"%s","value":"%s"}]' %
+                (key, datetime.now(dateutil.tz.gettz(TZ)).isoformat(), result))
+        msg += '}}}'
+        self.send_once(msg, len(msg), ctype='text/json')
         return
 
     def data_provider(self):
@@ -103,7 +116,7 @@ class WrenHTTPHandler(TinyHTTPHandler):
         ret, m, em = wp.execute(self.path)
         if ret != 200:
             self.send_error_msg(ret, '%s, path=%s' % (em, self.path))
-            return
+            return True
         #self.send_response(ret, m)
         # XXX support Accept-Encoding: gzip
         self.send_response(ret)
@@ -112,39 +125,66 @@ class WrenHTTPHandler(TinyHTTPHandler):
         self.end_headers()
         self.wfile.write(m)
         self.wfile.write('\n')
+        return True
 
     def do_HEAD(self):
-        self.add_common_headers();
+        self.pre_process()
+        self.add_common_headers()
         self.end_headers()
         self.wfile.write('\n')
 
     def do_OPTIONS(self):
-        self.add_common_headers();
+        self.pre_process()
+        self.add_common_headers()
         self.end_headers()
         self.wfile.write('\n')
 
+    def do_proxy_mapping(self, path):
+        pass
+
     def do_GET(self):
-        #
-        # gateway.
+        self.pre_process()
+        # proxy mapping..
         #
         if (self.server.config.has_key('keymap') and
                 self.server.config['keymap'].has_key(self.path)):
-            try:
-                self.do_gw_read(self.server.config['keymap'][self.path])
-                return
-            except Exception:
-                self.send_error_msg(400, 'internal error, gw failed')
-                return
+            do_proxy_mapping(self.path)
+            return
         #
         # data provider.
         #
         if self.path.startswith('/?'):
-            try:
-                if self.data_provider():
-                    return
-            except Exception:
-                self.send_error_msg(400, 'internal error, file provider failed')
-                return
+            #
+            # check base format of the path.
+            #
+            base = self.path.split('?')
+            if len(base) != 2:
+                self.send_error_msg(400,
+                        'invalid format, there are multiple questions.')
+            #
+            # XXX currently, it only support one key.
+            # XXX it should check each k=<key>.
+            # XXX need to merge wrenProvider.py
+            #
+            params = base[1].split('&')
+            for p in params:
+                kv = p.split('=')
+                if len(kv) != 2:
+                    self.send_error_msg(400,
+                        'invalid format, there are multiple values.')
+                if kv[1] == '':
+                    self.send_error_msg(400,
+                        'invalid format, value is not specified.')
+                if kv[0] == 'k':
+                    if (self.server.config.has_key('keymap') and
+                            self.server.config['keymap'].has_key(kv[1])):
+                        try:
+                            self.do_gw_read(kv[1])
+                        except Exception as e:
+                            self.send_error_msg(400,
+                                    'internal error, gw failed, %s' % e)
+                        finally:
+                            return
         #
         # file provider.
         # it only checks whether the URL is matched with the pre-defined.
@@ -163,19 +203,26 @@ class WrenHTTPHandler(TinyHTTPHandler):
         return
 
     def do_PUT(self):
+        self.pre_process()
         #
         # gateway.
         #
+        k = self.path[1:]
         if (self.server.config.has_key('keymap') and
-                self.server.config['keymap'].has_key(self.path)):
+                self.server.config['keymap'].has_key(k)):
             try:
                 body = json.loads(self.read_length())
             except Exception as e:
-                self.send_error_msg(400, 'invalid body of the request [%s] %s'
+                self.send_error_msg(400,
+                                    'ERROR: invalid body of the request [%s] %s'
                                     % (self.path, e))
                 return
-            self.do_gw_write(self.server.config['keymap'][self.path], body)
+            if not body.has_key('value'):
+                self.send_error_msg(400,
+                            'ERROR: invalid format of body [%s]' % (self.path))
+            self.do_gw_write(k, body['value'])
             return
+        self.send_error_msg(400, 'ERROR: invalid PUT request [%s]' % self.path)
         return
 
     def do_POST(self):
