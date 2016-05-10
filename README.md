@@ -14,6 +14,15 @@ and privides the data to the client in JSON.
 - db/wrenDB.py
 - js/wrenClient.js
 
+## requirements
+
+- pymodbus
+- dateutil
+
+## gw
+
+functions must return a string.
+
 ## how to run
 
 export PYTHONPATH=<top directory>
