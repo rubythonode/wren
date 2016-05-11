@@ -62,12 +62,11 @@ class WrenHTTPHandler(TinyHTTPHandler):
             self.send_error_msg(400,
                     'ERROR: internal error, unsupported protocol')
             return
-        if not result:
-            self.send_error_msg(400,
-                'ERROR: internal error, gateway failed.')
+        if not result['status']:
+            self.send_error_msg(400, 'ERROR: %s' % result['value'])
             return
-        msg = 'success'
-        self.send_once(msg, len(msg), ctype='text/plain')
+        msg = '{"status":"success"}'
+        self.send_once(msg, len(msg), ctype='text/json')
         return
 
     def do_gw_read(self, key):
@@ -91,13 +90,12 @@ class WrenHTTPHandler(TinyHTTPHandler):
             self.send_error_msg(400,
                     'ERROR: internal error, unsupported protocol')
             return
-        if not result:
-            self.send_error_msg(400,
-                'ERROR: internal error, gateway failed.')
+        if not result['status']:
+            self.send_error_msg(400, 'ERROR: %s' % result['value'])
             return
         if keymap.has_key('adjust'):
             try:
-                result = eval(str(float(result)) + keymap['adjust'])
+                value = eval(str(float(result['value'])) + keymap['adjust'])
             except Exception as e:
                 self.send_error_msg(400,
                     'ERROR: internal error, conversion failed.')
@@ -105,7 +103,7 @@ class WrenHTTPHandler(TinyHTTPHandler):
         # get current ISO datetime.
         msg = '{"kiwi":{"version":"20140401","point":{'
         msg += ('"%s":[{"time":"%s","value":"%s"}]' %
-                (key, datetime.now(dateutil.tz.gettz(TZ)).isoformat(), result))
+                (key, datetime.now(dateutil.tz.gettz(TZ)).isoformat(), value))
         msg += '}}}'
         self.send_once(msg, len(msg), ctype='text/json')
         return
