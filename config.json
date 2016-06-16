@@ -3,7 +3,7 @@
         "sensor.tanu.org/wave" : {
             "protocol" : "MODBUS-TCP",
             "node" : "127.0.0.1",
-            "port" : "50200",
+            "port" : "502",
             "table" : "InputRegister",
             "address" : 0,
             "adjust" : "/100"
@@ -11,7 +11,7 @@
         "sensor.tanu.org/base" : {
             "protocol" : "MODBUS-TCP",
             "node" : "127.0.0.1",
-            "port" : "50200",
+            "port" : "502",
             "table" : "HoldingRegister",
             "address" : 0
         }
